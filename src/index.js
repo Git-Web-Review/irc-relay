@@ -1,59 +1,20 @@
 import Redis from "ioredis";
 import irc from "irc-framework";
+import { renderIrcNotification } from "./notification-template.js";
 
 const redisUrl = process.env.REDIS_URL ?? "redis://localhost:6379";
 const redisChannel = process.env.REDIS_CHANNEL ?? "notifications:irc";
 const frontendUrl = (
   process.env.FRONTEND_URL ?? "http://localhost:5173"
 ).replace(/\/$/, "");
+const templatesDir = process.env.NOTIFICATION_TEMPLATES_DIR;
 const dryRun = parseBoolean(process.env.IRC_DRY_RUN ?? "false");
 const subscriber = new Redis(redisUrl);
 const client = dryRun ? null : new irc.Client();
 let ircRegistered = false;
 
-const translations = {
-  FR: {
-    app: "git-web-review",
-    notification: "Notification",
-    textNotification: "Notification",
-    reviewPending: "Review a faire",
-    reviewStatusChanged: "Statut de review modifie",
-    commentReceived: "Commentaire recu",
-    openedBy: "par",
-    updatedBy: "par",
-    statuses: {
-      PENDING: "En attente",
-      IN_REVIEW: "En review",
-      APPROVED: "Approuvee",
-      CHANGES_REQUESTED: "Modifications demandees",
-      CLOSED: "Done",
-    },
-  },
-  EN: {
-    app: "git-web-review",
-    notification: "Notification",
-    textNotification: "Notification",
-    reviewPending: "Review requested",
-    reviewStatusChanged: "Review status changed",
-    commentReceived: "Comment received",
-    openedBy: "by",
-    updatedBy: "by",
-    statuses: {
-      PENDING: "Pending",
-      IN_REVIEW: "In review",
-      APPROVED: "Approved",
-      CHANGES_REQUESTED: "Changes requested",
-      CLOSED: "Done",
-    },
-  },
-};
-
 function parseBoolean(value) {
   return /^(1|true|yes|on)$/i.test(String(value));
-}
-
-function normalizeLocale(locale) {
-  return String(locale ?? "FR").toUpperCase() === "EN" ? "EN" : "FR";
 }
 
 function asString(value) {
@@ -79,79 +40,6 @@ function parseEvent(message) {
   }
 }
 
-function reviewTitle(payload) {
-  return (
-    asString(payload.title) ??
-    asString(payload.gitwebTitle) ??
-    asString(payload.reviewId) ??
-    "Review"
-  );
-}
-
-function reviewUrl(payload) {
-  const reviewId = asString(payload.reviewId);
-  if (reviewId) {
-    return `${frontendUrl}/review/${encodeURIComponent(reviewId)}`;
-  }
-
-  return asString(payload.gitwebUrl);
-}
-
-function statusLabel(labels, status) {
-  const key = asString(status);
-  return key ? (labels.statuses[key] ?? key) : null;
-}
-
-function formatEvent(event) {
-  const payload =
-    event.payload && typeof event.payload === "object" ? event.payload : {};
-  const labels = translations[normalizeLocale(event.user.locale)];
-  const title = reviewTitle(payload);
-  const url = reviewUrl(payload);
-
-  switch (event.type) {
-    case "REVIEW_PENDING": {
-      const ownerEmail = asString(payload.ownerEmail);
-      return compact([
-        `[${labels.app}] ${labels.reviewPending}: ${title}`,
-        ownerEmail ? `${labels.openedBy} ${ownerEmail}` : null,
-        url,
-      ]).join(" - ");
-    }
-    case "REVIEW_STATUS_CHANGED": {
-      const previousStatus = statusLabel(labels, payload.previousStatus) ?? "-";
-      const nextStatus = statusLabel(labels, payload.nextStatus) ?? "-";
-      const actor =
-        asString(payload.actorNickname) ?? asString(payload.actorEmail);
-      return compact([
-        `[${labels.app}] ${labels.reviewStatusChanged}: ${title}`,
-        `${previousStatus} -> ${nextStatus}`,
-        actor ? `${labels.updatedBy} ${actor}` : null,
-        url,
-      ]).join(" - ");
-    }
-    case "TEXT": {
-      return compact([
-        `[${labels.app}] ${asString(payload.title) ?? labels.textNotification}`,
-        asString(payload.message),
-      ]).join(" - ");
-    }
-    case "COMMENT_RECEIVED": {
-      return compact([
-        `[${labels.app}] ${labels.commentReceived}: ${title}`,
-        asString(payload.message),
-        url,
-      ]).join(" - ");
-    }
-    default:
-      return `[${labels.app}] ${labels.notification}: ${JSON.stringify(payload)}`;
-  }
-}
-
-function compact(values) {
-  return values.filter((value) => typeof value === "string" && value.trim());
-}
-
 function splitIrcMessage(message) {
   const maxLength = Number(process.env.IRC_MESSAGE_MAX_LENGTH ?? 390);
   if (message.length <= maxLength) {
@@ -175,7 +63,7 @@ function splitIrcMessage(message) {
   return chunks;
 }
 
-function sendIrc(event) {
+async function sendIrc(event) {
   if (
     !event.user.ircNotificationsEnabled ||
     !asString(event.user.ircNickname)
@@ -184,7 +72,10 @@ function sendIrc(event) {
   }
 
   const target = asString(event.user.ircNickname);
-  const message = formatEvent(event);
+  const message = await renderIrcNotification(event, {
+    frontendUrl,
+    templatesDir,
+  });
   if (dryRun) {
     console.log(`[dry-run] IRC to ${target}: ${message}`);
     return;
@@ -237,7 +128,9 @@ subscriber.on("message", (_channel, message) => {
     return;
   }
 
-  sendIrc(event);
+  void sendIrc(event).catch((error) => {
+    console.error("Failed to send IRC notification", error);
+  });
 });
 
 subscriber.on("error", (error) => {
