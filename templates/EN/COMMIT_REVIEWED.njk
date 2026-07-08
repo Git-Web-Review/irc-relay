@@ -1,0 +1,4 @@
+[{{ app }}] Commit(s) reviewed ({{ payload.commitCount }}): {{ title }}
+{% if actor %}by {{ actor }}{% endif %}
+{% if payload.commitTitles %}{{ payload.commitTitles }}{% endif %}
+{% if url %}{{ url }}{% endif %}

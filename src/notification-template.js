@@ -1,9 +1,12 @@
 import fs from "node:fs/promises";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import Mustache from "mustache";
+import nunjucks from "nunjucks";
 
-Mustache.escape = (value) => String(value);
+const templateEnv = new nunjucks.Environment(null, {
+  autoescape: false,
+  throwOnUndefined: false,
+});
 
 const defaultTemplatesDir = path.join(
   path.dirname(fileURLToPath(import.meta.url)),
@@ -97,7 +100,7 @@ function eventView(event, options) {
 }
 
 async function readTemplate(templatesDir, locale, type) {
-  const filePath = path.join(templatesDir, locale, `${type}.mustache`);
+  const filePath = path.join(templatesDir, locale, `${type}.njk`);
   const cacheKey = filePath;
   if (templateCache.has(cacheKey)) {
     return templateCache.get(cacheKey);
@@ -134,7 +137,8 @@ async function loadTemplate(event, templatesDir) {
 export async function renderIrcNotification(event, options) {
   const templatesDir = options.templatesDir ?? defaultTemplatesDir;
   const template = await loadTemplate(event, templatesDir);
-  return Mustache.render(template, eventView(event, options))
+  return templateEnv
+    .renderString(template, eventView(event, options))
     .split("\n")
     .map((line) => line.trim())
     .filter(Boolean)
