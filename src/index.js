@@ -1,5 +1,10 @@
 import Redis from "ioredis";
 import irc from "irc-framework";
+import {
+  ircLines,
+  isValidIrcTarget,
+  sanitizeIrcText,
+} from "./irc-safety.js";
 import { renderIrcNotification } from "./notification-template.js";
 
 const redisUrl = process.env.REDIS_URL ?? "redis://localhost:6379";
@@ -9,7 +14,11 @@ const frontendUrl = (
 ).replace(/\/$/, "");
 const templatesDir = process.env.NOTIFICATION_TEMPLATES_DIR;
 const dryRun = parseBoolean(process.env.IRC_DRY_RUN ?? "false");
-const subscriber = new Redis(redisUrl);
+// The password is passed as an option rather than inside the URL: a
+// base64-generated password contains `/`, `+` and `=`, which make the URL invalid.
+const subscriber = new Redis(redisUrl, {
+  password: process.env.REDIS_PASSWORD || undefined,
+});
 const client = dryRun ? null : new irc.Client();
 let ircRegistered = false;
 
@@ -40,44 +49,43 @@ function parseEvent(message) {
   }
 }
 
-function splitIrcMessage(message) {
-  const maxLength = Number(process.env.IRC_MESSAGE_MAX_LENGTH ?? 390);
-  if (message.length <= maxLength) {
-    return [message];
-  }
-
-  const chunks = [];
-  let remaining = message;
-  while (remaining.length > maxLength) {
-    const splitAt = Math.max(
-      remaining.lastIndexOf(" ", maxLength),
-      Math.floor(maxLength * 0.75),
-    );
-    chunks.push(remaining.slice(0, splitAt));
-    remaining = remaining.slice(splitAt).trimStart();
-  }
-  if (remaining) {
-    chunks.push(remaining);
-  }
-
-  return chunks;
-}
-
 async function sendIrc(event) {
-  if (
-    !event.user.ircNotificationsEnabled ||
-    !asString(event.user.ircNickname)
-  ) {
+  if (!event.user.ircNotificationsEnabled) {
     return;
   }
 
   const target = asString(event.user.ircNickname);
+  if (!target) {
+    return;
+  }
+
+  // A target is refused, not repaired: stripping a character from a nickname
+  // would give a valid but different nickname, and the notification would go to
+  // somebody else.
+  if (!isValidIrcTarget(target)) {
+    console.error(
+      `Refusing to send to an invalid IRC target for user ${sanitizeIrcText(event.user.id)}`,
+    );
+    return;
+  }
+
   const message = await renderIrcNotification(event, {
     frontendUrl,
     templatesDir,
   });
+  const lines = ircLines(message, {
+    maxLength: process.env.IRC_MESSAGE_MAX_LENGTH,
+    maxLines: process.env.IRC_MESSAGE_MAX_LINES,
+  });
+
+  if (lines.length === 0) {
+    return;
+  }
+
   if (dryRun) {
-    console.log(`[dry-run] IRC to ${target}: ${message}`);
+    for (const line of lines) {
+      console.log(`[dry-run] IRC to ${target}: ${line}`);
+    }
     return;
   }
 
@@ -88,10 +96,10 @@ async function sendIrc(event) {
     return;
   }
 
-  for (const chunk of splitIrcMessage(message)) {
-    client.say(target, chunk);
+  for (const line of lines) {
+    client.say(target, line);
   }
-  console.log(`IRC notification sent to ${target}`);
+  console.log(`IRC notification sent to ${target} (${lines.length} line(s))`);
 }
 
 if (client) {

@@ -99,7 +99,31 @@ function eventView(event, options) {
   };
 }
 
+/**
+ * The type and locale come from the Redis event and are used to build a file
+ * path, which is then rendered as a template. The backend only ever puts values
+ * from its own enum there, but the relay must not depend on another service's
+ * discipline to avoid reading an arbitrary file.
+ */
+const KNOWN_TEMPLATE_TYPES = new Set([
+  "TEXT",
+  "REVIEW_PENDING",
+  "REVIEW_STATUS_CHANGED",
+  "COMMENT_RECEIVED",
+  "COMMIT_REVIEWED",
+  "REVIEW_NEW_VERSION",
+  "DEFAULT",
+]);
+
+const KNOWN_LOCALES = new Set(["FR", "EN"]);
+
 async function readTemplate(templatesDir, locale, type) {
+  if (!KNOWN_LOCALES.has(locale) || !KNOWN_TEMPLATE_TYPES.has(type)) {
+    const error = new Error(`Unknown notification template ${locale}/${type}`);
+    error.code = "ENOENT";
+    throw error;
+  }
+
   const filePath = path.join(templatesDir, locale, `${type}.njk`);
   const cacheKey = filePath;
   if (templateCache.has(cacheKey)) {
