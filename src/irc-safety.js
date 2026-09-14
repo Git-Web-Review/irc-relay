@@ -1,5 +1,5 @@
 /**
- * Dernier rempart avant le socket.
+ * Last gate before the socket.
  *
  * `irc-framework` builds the line by plain concatenation and then writes
  * `line + "\r\n"`: nothing along that path strips the characters that end a
