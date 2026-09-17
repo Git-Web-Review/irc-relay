@@ -1,0 +1,5 @@
+[{{ app }}] Mention: {{ title }}
+{% if actor %}by {{ actor }}{% endif %}
+{% if payload.addedAsReviewer %}added as reviewer{% endif %}
+{% if commentExcerpt %}{{ commentExcerpt }}{% endif %}
+{% if url %}{{ url }}{% endif %}
