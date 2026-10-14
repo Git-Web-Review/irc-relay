@@ -52,7 +52,10 @@ function reviewTitle(payload) {
 function reviewUrl(payload, frontendUrl) {
   const reviewId = asString(payload.reviewId);
   if (reviewId) {
-    return `${frontendUrl}/review/${encodeURIComponent(reviewId)}`;
+    const url = `${frontendUrl}/review/${encodeURIComponent(reviewId)}`;
+    return Number.isInteger(payload.commentNumber)
+      ? `${url}?comment=${payload.commentNumber}`
+      : url;
   }
 
   return asString(payload.gitwebUrl);
