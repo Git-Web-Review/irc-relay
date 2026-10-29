@@ -60,3 +60,10 @@ templates/<locale>/<notification-type>.mustache
 For example, a French `REVIEW_PENDING` notification uses `templates/FR/REVIEW_PENDING.mustache`. If a localized template is missing, the relay falls back to `FR`, then `DEFAULT.mustache`.
 
 Templates receive the Redis event fields plus derived values such as `title`, `url`, `gitwebUrl`, `actor`, `ownerEmail`, `message`, `previousStatusLabel`, `nextStatusLabel`, `sourceProject`, `sourceBranch`, `sourceCommit`, and `rawPayload`.
+
+### User formats
+
+When the event carries `user.ircFormat` (a printf-style format the user set in the
+frontend settings for this notification type), it replaces the template. The
+specifiers are listed in [`src/printf-format.js`](src/printf-format.js); a
+missing value prints nothing and `%%` is a literal `%`.

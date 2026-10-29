@@ -2,6 +2,7 @@ import fs from "node:fs/promises";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import nunjucks from "nunjucks";
+import { formatNotification } from "./printf-format.js";
 
 const templateEnv = new nunjucks.Environment(null, {
   autoescape: false,
@@ -164,10 +165,15 @@ async function loadTemplate(event, templatesDir) {
 }
 
 export async function renderIrcNotification(event, options) {
-  const templatesDir = options.templatesDir ?? defaultTemplatesDir;
-  const template = await loadTemplate(event, templatesDir);
-  return templateEnv
-    .renderString(template, eventView(event, options))
+  const view = eventView(event, options);
+  const format = asString(event.user?.ircFormat);
+  const rendered = format
+    ? formatNotification(format, view)
+    : templateEnv.renderString(
+        await loadTemplate(event, options.templatesDir ?? defaultTemplatesDir),
+        view,
+      );
+  return rendered
     .split("\n")
     .map((line) => line.trim())
     .filter(Boolean)
